@@ -1,0 +1,42 @@
+{
+  "aws_eks_clusters": {
+    "ts-us-e2-n1": {
+      "region": "us-east-2",
+      "location": "Ohio"
+    },
+    "ts-us-e2-n2": {
+      "region": "us-east-2", 
+      "location": "Ohio"
+    },
+    "ts-us-w2-n1": {
+      "region": "us-west-2",
+      "location": "Oregon"
+    },
+    "ts-ap-s1-n1": {
+      "region": "ap-south-1",
+      "location": "Mumbai"
+    },
+    "ts-eu-w1-n2": {
+      "region": "eu-west-1",
+      "location": "Ireland"
+    }
+  },
+  "gcp_gke_clusters": {
+    "ts-eu-w1-new-gke": {
+      "region": "europe-west1",
+      "location": "Belgium"
+    },
+    "ts-us-e1-n1-gke": {
+      "region": "us-east1", 
+      "location": "South Carolina"
+    },
+    "ts-us-e1-n2-gke": {
+      "region": "us-east1",
+      "location": "South Carolina"
+    },
+    "ts-us-roku-gke": {
+      "region": "us-east1",
+      "location": "South Carolina"
+    }
+  }
+} 
