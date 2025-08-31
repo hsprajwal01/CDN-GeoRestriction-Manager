@@ -1,0 +1,13 @@
+{
+  "aws_accounts": [
+    {
+      "account_name": "Prod - Cloudfront",
+      "access_key_id": "",
+      "secret_access_key": "",
+      "session_token": " ",
+      "region": "us-west-2"
+    }
+  ]
+} 
+
+

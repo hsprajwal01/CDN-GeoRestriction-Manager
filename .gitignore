@@ -1,6 +1,5 @@
 # Configuration files with sensitive data
-config.json
-*_config.json
+
 credentials.json
 
 # Python
