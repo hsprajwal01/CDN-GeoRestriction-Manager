@@ -4,10 +4,14 @@
       "account_name": "Prod - Cloudfront",
       "access_key_id": "",
       "secret_access_key": "",
-      "session_token": " ",
+      "session_token": "" ,
       "region": "us-west-2"
     }
-  ]
+  ],
+  "stormforge": {
+    "api_token": "",
+    "base_url": "https://stormforge.tsv3.amagi.tv/v1"
+  }
 } 
 
 
