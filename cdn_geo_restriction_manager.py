@@ -15,8 +15,9 @@ import json
 import sys
 import argparse
 import boto3
+import requests
 from botocore.exceptions import ClientError, NoCredentialsError
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 import logging
 
 # Configure logging
@@ -30,7 +31,9 @@ class CloudFrontGeoRestrictionManager:
         self.config_file = config_file
         self.config = self._load_config()
         self.clients = self._initialize_clients()
-
+        self.country_codes = self._load_country_codes()
+        self.cluster_regions = self._load_cluster_regions()
+        
     def _load_config(self) -> Dict:
         """Load configuration from JSON file."""
         try:
@@ -192,7 +195,7 @@ class CloudFrontGeoRestrictionManager:
             result = []
             
             # Load country code mappings
-            country_codes = self._load_country_codes()
+            country_codes = self.country_codes
             
             # Distribution-level geo restrictions (Security tab)
             distribution_restrictions = geo_restrictions.get('distribution_level', {})
@@ -274,6 +277,251 @@ Geo Restrictions:
         except Exception:
             return {}
 
+    def _load_cluster_regions(self) -> Dict[str, Any]:
+        """Load cluster regions configuration."""
+        try:
+            with open('cluster_regions.json', 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print("⚠️  Warning: cluster_regions.json not found")
+            return {"aws_eks_clusters": {}, "gcp_gke_clusters": {}}
+        except json.JSONDecodeError:
+            print("❌ Error: Invalid JSON in cluster_regions.json")
+            return {"aws_eks_clusters": {}, "gcp_gke_clusters": {}}
+
+    def get_channel_delivery_details(self, channel_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch channel delivery details from StormForge API."""
+        # Get StormForge configuration from config
+        stormforge_config = self.config.get('stormforge', {})
+        api_token = stormforge_config.get('api_token')
+        base_url = stormforge_config.get('base_url', 'https://stormforge.tsv3.amagi.tv/v1')
+        
+        if not api_token:
+            print("❌ Error: StormForge API token not found in config.json")
+            print("   💡 Add StormForge configuration to config.json:")
+            print("   {")
+            print('     "stormforge": {')
+            print('       "api_token": "YOUR_STORMFORGE_API_TOKEN",')
+            print('       "base_url": "https://stormforge.tsv3.amagi.tv/v1"')
+            print("     }")
+            print("   }")
+            return None
+            
+        url = f"{base_url}/tsdelivery/{channel_id}"
+        headers = {
+            'Authorization': f'Bearer {api_token}'
+        }
+        
+        try:
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Error fetching channel details: {e}")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"❌ Error parsing JSON response: {e}")
+            return None
+
+    def extract_setup_values(self, data: Any, setup_values: List[str] = None) -> List[str]:
+        """Recursively extract all 'setup' values from JSON data."""
+        if setup_values is None:
+            setup_values = []
+            
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if key == 'setup' and isinstance(value, str):
+                    setup_values.append(value)
+                elif isinstance(value, (dict, list)):
+                    self.extract_setup_values(value, setup_values)
+        elif isinstance(data, list):
+            for item in data:
+                self.extract_setup_values(item, setup_values)
+                
+        return setup_values
+
+    def get_regions_for_setups(self, setup_values: List[str]) -> Dict[str, List[str]]:
+        """Get regions for given setup values from cluster configuration."""
+        regions = {"aws": [], "gcp": []}
+        found_setups = []
+        not_found_setups = []
+        
+        # Check AWS EKS clusters
+        for cluster_name, cluster_info in self.cluster_regions.get("aws_eks_clusters", {}).items():
+            if cluster_name in setup_values:
+                region = cluster_info.get("region")
+                if region:
+                    regions["aws"].append(region)
+                    found_setups.append(cluster_name)
+        
+        # Check GCP GKE clusters (handle both with and without -gke suffix)
+        for cluster_name, cluster_info in self.cluster_regions.get("gcp_gke_clusters", {}).items():
+            # Try exact match first
+            if cluster_name in setup_values:
+                region = cluster_info.get("region")
+                if region:
+                    regions["gcp"].append(region)
+                    found_setups.append(cluster_name)
+            else:
+                # Try matching without -gke suffix (e.g., ts-us-e1-n2 matches ts-us-e1-n2-gke)
+                base_name = cluster_name.replace("-gke", "")
+                if base_name in setup_values:
+                    region = cluster_info.get("region")
+                    if region:
+                        regions["gcp"].append(region)
+                        found_setups.append(f"{base_name} (mapped to {cluster_name})")
+        
+        # Find setups that weren't found in any cluster configuration
+        for setup in setup_values:
+            if setup not in found_setups and not any(setup in found for found in found_setups):
+                not_found_setups.append(setup)
+        
+        # Store results for reporting
+        self.found_setups = found_setups
+        self.not_found_setups = not_found_setups
+                    
+        return regions
+
+    def get_countries_for_regions(self, regions: Dict[str, List[str]]) -> List[str]:
+        """Get countries directly from cluster_regions.json country field."""
+        countries = []
+        found_locations = []
+        missing_country_clusters = []
+        
+        # Extract countries directly from cluster_regions.json
+        for cloud_type, region_list in regions.items():
+            for region in region_list:
+                # Find clusters that use this region
+                if cloud_type == "aws":
+                    clusters = self.cluster_regions.get("aws_eks_clusters", {})
+                else:  # gcp
+                    clusters = self.cluster_regions.get("gcp_gke_clusters", {})
+                
+                # Get country directly from cluster info
+                for cluster_name, cluster_info in clusters.items():
+                    if cluster_info.get("region") == region:
+                        location = cluster_info.get("location")
+                        country = cluster_info.get("country")
+                        
+                        if location and country:
+                            found_locations.append(f"{region} ({location})")
+                            if country not in countries:
+                                countries.append(country)
+                        elif location and not country:
+                            # Found cluster but missing country code
+                            missing_country_clusters.append(f"{cluster_name} ({location})")
+                        elif not location:
+                            # Missing location info
+                            missing_country_clusters.append(f"{cluster_name} (no location)")
+        
+        # Store found locations and missing country info for reporting
+        self.found_locations = found_locations
+        self.missing_country_clusters = missing_country_clusters
+                    
+        return countries
+
+    def check_channel_whitelist_status(self, channel_id: str, distribution_id: str) -> None:
+        """Check if countries for channel's setup regions are whitelisted."""
+        print(f"\n🔍 Checking whitelist status for channel: {channel_id}")
+        print("=" * 60)
+        
+        # Get channel delivery details
+        delivery_details = self.get_channel_delivery_details(channel_id)
+        if not delivery_details:
+            print("❌ Could not fetch channel delivery details")
+            return
+            
+        # Extract setup values
+        setup_values = self.extract_setup_values(delivery_details)
+        if not setup_values:
+            print("❌ No setup values found in delivery details")
+            return
+            
+        print(f"📍 Found setup values: {', '.join(setup_values)}")
+        
+        # Get regions for setups
+        regions = self.get_regions_for_setups(setup_values)
+        
+        # Show found setups and mappings
+        if hasattr(self, 'found_setups') and self.found_setups:
+            print(f"✅ Found setups in cluster config: {', '.join(self.found_setups)}")
+        
+        # Show warnings for not found setups
+        if hasattr(self, 'not_found_setups') and self.not_found_setups:
+            print(f"⚠️  WARNING: Setups not found in cluster config: {', '.join(self.not_found_setups)}")
+            print("   💡 These setups might be:")
+            print("      - New clusters not yet added to cluster_regions.json")
+            print("      - Different naming convention (e.g., ts-us-e1-n2 vs ts-us-e1-n2-gke)")
+            print("      - Clusters in different regions")
+        
+        print(f"📍 AWS Regions: {', '.join(regions['aws']) if regions['aws'] else 'None'}")
+        print(f"📍 GCP Regions: {', '.join(regions['gcp']) if regions['gcp'] else 'None'}")
+        
+        # Get countries for regions
+        countries = self.get_countries_for_regions(regions)
+        
+        # Show location details
+        if hasattr(self, 'found_locations') and self.found_locations:
+            print(f"📍 Found locations: {', '.join(self.found_locations)}")
+        
+        # Show warnings for missing country codes
+        if hasattr(self, 'missing_country_clusters') and self.missing_country_clusters:
+            print(f"⚠️  WARNING: Clusters missing country codes: {', '.join(self.missing_country_clusters)}")
+            print("   💡 Add 'country' field to these clusters in cluster_regions.json:")
+            print("      Example: {\"region\": \"us-east1\", \"location\": \"South Carolina\", \"country\": \"US\"}")
+        
+        if not countries:
+            if hasattr(self, 'not_found_setups') and self.not_found_setups:
+                print("❌ Could not map regions to countries - no setups found in cluster config")
+                print("   💡 Please check your cluster_regions.json file and ensure all setups are mapped")
+            elif hasattr(self, 'missing_country_clusters') and self.missing_country_clusters:
+                print("❌ Could not map regions to countries - missing country codes in cluster config")
+                print("   💡 Please add 'country' field to clusters in cluster_regions.json")
+            else:
+                print("❌ Could not map regions to countries")
+            return
+            
+        print(f"📍 Required countries: {', '.join(countries)}")
+        
+        # Get current CloudFront restrictions
+        try:
+            distribution_info = self.get_distribution_info(distribution_id)
+            if not distribution_info:
+                print("❌ Could not get distribution info")
+                return
+                
+            geo_restrictions = self.get_geo_restrictions(distribution_info)
+            formatted_restrictions = self.format_geo_restrictions(geo_restrictions)
+            
+            print(f"\n📍 Current CloudFront restrictions:")
+            print(f"   {formatted_restrictions}")
+            
+            # Check if required countries are whitelisted
+            if 'distribution_level' in geo_restrictions:
+                dist_restrictions = geo_restrictions['distribution_level']
+                restriction_type = dist_restrictions.get('RestrictionType', 'none')
+                allowed_countries = dist_restrictions.get('Items', [])
+                
+                if restriction_type == 'whitelist':
+                    missing_countries = [country for country in countries if country not in allowed_countries]
+                    if missing_countries:
+                        print(f"\n⚠️  WARNING: Missing countries from whitelist: {', '.join(missing_countries)}")
+                        print("💡 Consider adding these countries to ensure proper access")
+                    else:
+                        print(f"\n✅ All required countries are whitelisted!")
+                elif restriction_type == 'blacklist':
+                    blocked_countries = [country for country in countries if country in allowed_countries]
+                    if blocked_countries:
+                        print(f"\n⚠️  WARNING: Required countries are blacklisted: {', '.join(blocked_countries)}")
+                        print("💡 Consider removing these countries from blacklist")
+                    else:
+                        print(f"\n✅ No required countries are blacklisted!")
+                else:
+                    print(f"\n✅ No restrictions - all countries have access")
+                    
+        except Exception as e:
+            print(f"❌ Error checking CloudFront restrictions: {e}")
+
     def interactive_modify_restrictions(self, distribution_info: Dict, geo_restrictions: Dict):
         """Interactive menu to modify geo restrictions."""
         print("\n" + "="*60)
@@ -286,7 +534,7 @@ Geo Restrictions:
         current_items = distribution_restrictions.get('Items', [])
         
         # Load country mappings
-        country_codes = self._load_country_codes()
+        country_codes = self.country_codes
         reverse_codes = self._load_country_codes_reverse()
         
         while True:
@@ -569,6 +817,11 @@ Examples:
         help='Enable interactive mode to modify geo restrictions'
     )
     
+    parser.add_argument(
+        '--channel-id',
+        help='Channel ID to check setup regions and whitelist status'
+    )
+    
     args = parser.parse_args()
     
     # Initialize the checker with proper error handling
@@ -624,7 +877,7 @@ Examples:
         # Validate distribution ID format
         if not args.distribution_id.strip():
             print("❌ ERROR: Distribution ID cannot be empty!")
-            print("   Usage: python cdn_region_checker.py E1234567890ABCD")
+            print("   Usage: python cdn_geo_restriction_manager.py E1234567890ABCD")
             sys.exit(1)
         
         if not args.distribution_id.startswith('E'):
@@ -633,22 +886,26 @@ Examples:
             sys.exit(1)
         
         try:
-            result = checker.check_distribution(args.distribution_id)
-            
-            # Check if result is a tuple (interactive mode data)
-            if isinstance(result, tuple):
-                output, distribution_info, geo_restrictions = result
-                print(output)
-                
-                # If interactive mode is enabled, show the modification menu
-                if args.interactive:
-                    if distribution_info and geo_restrictions:
-                        checker.interactive_modify_restrictions(distribution_info, geo_restrictions)
-                    else:
-                        print("❌ Cannot enter interactive mode - distribution not found or error occurred")
+            # If channel ID is provided, check whitelist status for channel
+            if args.channel_id:
+                checker.check_channel_whitelist_status(args.channel_id, args.distribution_id)
             else:
-                # Regular output (error message)
-                print(result)
+                result = checker.check_distribution(args.distribution_id)
+                
+                # Check if result is a tuple (interactive mode data)
+                if isinstance(result, tuple):
+                    output, distribution_info, geo_restrictions = result
+                    print(output)
+                    
+                    # If interactive mode is enabled, show the modification menu
+                    if args.interactive:
+                        if distribution_info and geo_restrictions:
+                            checker.interactive_modify_restrictions(distribution_info, geo_restrictions)
+                        else:
+                            print("❌ Cannot enter interactive mode - distribution not found or error occurred")
+                else:
+                    # Regular output (error message)
+                    print(result)
                 
         except KeyboardInterrupt:
             print("\n⚠️  Operation cancelled by user")

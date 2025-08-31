@@ -2,41 +2,50 @@
   "aws_eks_clusters": {
     "ts-us-e2-n1": {
       "region": "us-east-2",
-      "location": "Ohio"
+      "location": "Ohio",
+      "country": "US"
     },
     "ts-us-e2-n2": {
       "region": "us-east-2", 
-      "location": "Ohio"
+      "location": "Ohio",
+      "country": "US"
     },
     "ts-us-w2-n1": {
       "region": "us-west-2",
-      "location": "Oregon"
+      "location": "Oregon",
+      "country": "US"
     },
     "ts-ap-s1-n1": {
       "region": "ap-south-1",
-      "location": "Mumbai"
+      "location": "Mumbai",
+      "country": "IN"
     },
     "ts-eu-w1-n2": {
       "region": "eu-west-1",
-      "location": "Ireland"
+      "location": "Ireland",
+      "country": "GB"
     }
   },
   "gcp_gke_clusters": {
     "ts-eu-w1-new-gke": {
       "region": "europe-west1",
-      "location": "Belgium"
+      "location": "Belgium",
+      "country": "BE"
     },
     "ts-us-e1-n1-gke": {
       "region": "us-east1", 
-      "location": "South Carolina"
+      "location": "South Carolina",
+      "country": "US"
     },
     "ts-us-e1-n2-gke": {
       "region": "us-east1",
-      "location": "South Carolina"
+      "location": "South Carolina",
+      "country": "US"
     },
     "ts-us-roku-gke": {
       "region": "us-east1",
-      "location": "South Carolina"
+      "location": "South Carolina",
+      "country": "US"
     }
   }
 } 

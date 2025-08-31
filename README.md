@@ -28,7 +28,11 @@ Create `config.json`:
       "secret_access_key": "YOUR_SECRET_ACCESS_KEY",
       "region": "us-east-1"
     }
-  ]
+  ],
+  "stormforge": {
+    "api_token": "YOUR_STORMFORGE_API_TOKEN",
+    "base_url": "https://stormforge.tsv3.amagi.tv/v1"
+  }
 }
 ```
 
@@ -46,6 +50,11 @@ python cdn_geo_restriction_manager.py E1234567890ABCD
 ### Interactive Mode (Modify Restrictions)
 ```bash
 python cdn_geo_restriction_manager.py E1234567890ABCD --interactive
+```
+
+### Check Channel Whitelist Status
+```bash
+python cdn_geo_restriction_manager.py E1234567890ABCD --channel-id YOUR_CHANNEL_ID
 ```
 
 ## 📖 User Guide

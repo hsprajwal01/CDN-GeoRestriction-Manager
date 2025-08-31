@@ -22,6 +22,13 @@ python cdn_geo_restriction_manager.py YOUR_DISTRIBUTION_ID
 python cdn_geo_restriction_manager.py YOUR_DISTRIBUTION_ID --interactive
 ```
 
+### Step 3: Check Channel Whitelist Status
+```bash
+python cdn_geo_restriction_manager.py YOUR_DISTRIBUTION_ID --channel-id YOUR_CHANNEL_ID
+```
+
+This checks if countries for your channel's setup regions are whitelisted in CloudFront.
+
 ## 🔧 Interactive Mode Flow
 
 When you run with `--interactive`, you'll see this menu:
@@ -135,6 +142,19 @@ python cdn_geo_restriction_manager.py E36F0LSULI2ABO --interactive
 # Confirm: yes
 ```
 
+### Example 5: Check Channel Whitelist Status
+```bash
+# Check if countries for channel's setup regions are whitelisted
+python cdn_geo_restriction_manager.py E36F0LSULI2ABO --channel-id amg00353-lionsgatetvfast-moviesphere-fawesomeus
+```
+
+This will:
+1. Fetch channel delivery details from StormForge API
+2. Extract setup values (e.g., "ts-us-e1-n2")
+3. Map setups to regions and countries (handles GKE naming like "ts-us-e1-n2" → "ts-us-e1-n2-gke")
+4. Check if those countries are whitelisted in CloudFront
+5. Show warnings for setups not found in cluster configuration
+
 ## 🚨 Common Issues
 
 **"Distribution not found"**
@@ -149,10 +169,24 @@ python cdn_geo_restriction_manager.py E36F0LSULI2ABO --interactive
 **"Country not found"**
 - Use valid country codes like US, GB, IN, etc.
 
+**"Setups not found in cluster config"**
+- Add missing setups to cluster_regions.json
+- Check naming conventions (e.g., "ts-us-e1-n2" vs "ts-us-e1-n2-gke")
+- Verify cluster regions are correctly mapped
+
+**"Clusters missing country codes"**
+- Add "country" field to clusters in cluster_regions.json
+- Example: `{"region": "us-east1", "location": "South Carolina", "country": "US"}`
+
+**"StormForge API token not found"**
+- Add StormForge configuration to config.json
+- Include api_token and base_url in stormforge section
+
 ## 📁 Additional Files
 
 - **`cluster_regions.json`** - Contains your AWS EKS and GCP GKE cluster names with their regions and locations
 - **`country_codes.json`** - Complete mapping of country codes (US, GB, IN) to full country names
+- **`config.json`** - AWS credentials and StormForge API token configuration
 
 ## 🎯 Tips
 
